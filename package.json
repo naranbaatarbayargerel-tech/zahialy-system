@@ -1,0 +1,29 @@
+{
+  "name": "loungebarsystem",
+  "version": "1.0.0",
+  "description": "```bash docker compose up --build ```",
+  "main": "index.js",
+  "scripts": {
+    "predev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-local.ps1",
+    "prestart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-local.ps1",
+    "dev": "docker compose up --build",
+    "start": "docker compose up -d --build",
+    "stop": "docker compose down",
+    "logs": "docker compose logs -f --tail=100",
+    "status": "docker compose ps",
+    "test": "docker compose run --rm --no-deps gateway npm test",
+    "lint": "npm --prefix client run lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anomormarco/LoungeBarSystem.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Anomormarco/LoungeBarSystem/issues"
+  },
+  "homepage": "https://github.com/Anomormarco/LoungeBarSystem#readme"
+}

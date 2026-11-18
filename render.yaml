@@ -1,0 +1,218 @@
+databases:
+  - name: lounge-db
+    plan: free
+    postgresMajorVersion: "16"
+    databaseName: loungebar
+    user: loungebar_user
+
+services:
+  # =========================
+  # GATEWAY
+  # =========================
+  - type: web
+    name: lounge-gateway
+    env: docker
+    dockerfilePath: ./server/services/gateway/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: CLIENT_ORIGIN
+        value: https://lounge-bar-system.vercel.app
+      - key: AUTH_SERVICE_URL
+        value: https://lounge-auth-service.onrender.com
+      - key: LOUNGE_SERVICE_URL
+        value: https://lounge-lounge-service.onrender.com
+      - key: RESERVATION_SERVICE_URL
+        value: https://lounge-reservation-service.onrender.com
+      - key: PAYMENT_SERVICE_URL
+        value: https://lounge-payment-service.onrender.com
+      - key: NOTIFICATION_SERVICE_URL
+        value: https://lounge-notification-service.onrender.com
+
+  # =========================
+  # AUTH SERVICE
+  # =========================
+  - type: web
+    name: lounge-auth-service
+    env: docker
+    dockerfilePath: ./server/services/auth-service/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: DATABASE_REQUIRE_SSL
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: require
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: JWT_SECRET
+        value: supersecretjwtkey
+      - key: JWT_EXPIRES_IN
+        value: 7d
+
+  # =========================
+  # LOUNGE SERVICE
+  # =========================
+  - type: web
+    name: lounge-lounge-service
+    env: docker
+    dockerfilePath: ./server/services/lounge-service/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: READ_DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: DATABASE_REQUIRE_SSL
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: require
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: JWT_SECRET
+        value: supersecretjwtkey
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: TZ
+        value: Asia/Ulaanbaatar
+      - key: RESERVATION_DURATION_MINUTES
+        value: "120"
+      - key: RESERVATION_EXPIRE_JOB_INTERVAL_MS
+        value: "60000"
+
+  # =========================
+  # RESERVATION SERVICE
+  # =========================
+  - type: web
+    name: lounge-reservation-service
+    env: docker
+    dockerfilePath: ./server/services/reservation-service/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: DATABASE_REQUIRE_SSL
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: require
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: JWT_SECRET
+        value: supersecretjwtkey
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # Without one of these configured, sendEmail() throws, the OTP flow
+      # falls back to deliveryMode "mock", and the code gets shown directly
+      # in the client instead of actually being emailed. Fill in ONE of:
+      # BREVO_API_KEY + EMAIL_FROM (a Brevo-verified single sender, no
+      # domain needed - the easiest path), RESEND_API_KEY + EMAIL_FROM (a
+      # domain verified in Resend), SENDGRID_API_KEY, or SMTP_USER/SMTP_PASS
+      # (Gmail app password - note raw SMTP tends to be blocked on Render).
+      - key: BREVO_API_KEY
+        sync: false
+      # Port 587 + STARTTLS (secure:false), not 465 + implicit TLS: the
+      # implicit-TLS path can fail with ENETUNREACH on Render's network,
+      # see sendEmail.js's createSmtpTransporter for why.
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+  # =========================
+  # PAYMENT SERVICE
+  # =========================
+  - type: web
+    name: lounge-payment-service
+    env: docker
+    dockerfilePath: ./server/services/payment-service/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: DATABASE_REQUIRE_SSL
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: require
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: JWT_SECRET
+        value: supersecretjwtkey
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: STRIPE_CURRENCY
+        value: usd
+      - key: QPAY_BASE_URL
+        value: https://merchant.qpay.mn
+      - key: QPAY_CLIENT_ID
+        sync: false
+      - key: QPAY_CLIENT_SECRET
+        sync: false
+      - key: QPAY_INVOICE_CODE
+        sync: false
+      - key: QPAY_CALLBACK_URL
+        value: https://lounge-payment-service.onrender.com/payments/webhook/qpay
+
+  # =========================
+  # NOTIFICATION SERVICE
+  # =========================
+  - type: web
+    name: lounge-notification-service
+    env: docker
+    dockerfilePath: ./server/services/notification-service/Dockerfile
+    rootDir: ./server
+    envVars:
+      - key: CLIENT_ORIGIN
+        value: https://lounge-bar-system.vercel.app
+
+  # =========================
+  # DB MIGRATION (RUN ON DEPLOY)
+  # =========================
+  - type: job
+    name: lounge-db-migrate
+    env: docker
+    dockerfilePath: ./server/services/auth-service/Dockerfile
+    rootDir: ./server
+    plan: starter
+    command: node scripts/apply-migrations-with-pg.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lounge-db
+          property: connectionString
+      - key: DATABASE_REQUIRE_SSL
+        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: require
+      - key: DATABASE_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+
+  # =========================
+  # CLIENT
+  # =========================
+  - type: web
+    name: lounge-client
+    env: static
+    rootDir: ./client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_PROXY_TARGET
+        value: https://lounge-gateway.onrender.com

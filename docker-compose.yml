@@ -1,0 +1,169 @@
+name: loungebarsystem
+
+services:
+  client:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:client-${IMAGE_TAG:-latest}
+    build:
+      context: ./client
+    container_name: lounge_client
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_PROXY_TARGET=http://gateway:3000
+    depends_on:
+      - gateway
+
+  db:
+    image: postgres:16-alpine
+    container_name: lounge_db
+    restart: always
+    environment:
+      POSTGRES_USER: loungebar_user
+      POSTGRES_PASSWORD: loungebar_password
+      POSTGRES_DB: loungebar
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loungebar_user -d loungebar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  db-migrate:
+    build:
+      context: ./server
+      dockerfile: services/auth-service/Dockerfile
+    container_name: lounge_db_migrate
+    restart: "no"
+    environment:
+      - DATABASE_URL=postgresql://loungebar_user:loungebar_password@db:5432/loungebar
+    command: ["npx", "prisma", "migrate", "deploy", "--schema=./prisma/schema.prisma"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gateway:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:gateway-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/gateway/Dockerfile
+    container_name: lounge_gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - CLIENT_ORIGIN=http://localhost:5173
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - LOUNGE_SERVICE_URL=http://lounge-service:3002
+      - RESERVATION_SERVICE_URL=http://reservation-service:3003
+      - PAYMENT_SERVICE_URL=http://payment-service:3004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+    depends_on:
+      auth-service:
+        condition: service_started
+      lounge-service:
+        condition: service_started
+      reservation-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+
+  auth-service:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:auth-service-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/auth-service/Dockerfile
+    container_name: lounge_auth_service
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://loungebar_user:loungebar_password@db:5432/loungebar}
+      - JWT_SECRET=supersecretjwtkey
+      - JWT_EXPIRES_IN=7d
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  lounge-service:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:lounge-service-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/lounge-service/Dockerfile
+    container_name: lounge_lounge_service
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://loungebar_user:loungebar_password@db:5432/loungebar}
+      - READ_DATABASE_URL=${READ_DATABASE_URL:-postgresql://loungebar_user:loungebar_password@db:5432/loungebar}
+      - JWT_SECRET=supersecretjwtkey
+      - JWT_EXPIRES_IN=7d
+      - TZ=Asia/Ulaanbaatar
+      - RESERVATION_DURATION_MINUTES=${RESERVATION_DURATION_MINUTES:-120}
+      - RESERVATION_EXPIRE_JOB_INTERVAL_MS=${RESERVATION_EXPIRE_JOB_INTERVAL_MS:-60000}
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  reservation-service:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:reservation-service-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/reservation-service/Dockerfile
+    container_name: lounge_reservation_service
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://loungebar_user:loungebar_password@db:5432/loungebar}
+      - JWT_SECRET=supersecretjwtkey
+      - JWT_EXPIRES_IN=7d
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
+      - BREVO_API_KEY=${BREVO_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  payment-service:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:payment-service-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/payment-service/Dockerfile
+    container_name: lounge_payment_service
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://loungebar_user:loungebar_password@db:5432/loungebar}
+      - JWT_SECRET=supersecretjwtkey
+      - JWT_EXPIRES_IN=7d
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_PRICE_ID=${STRIPE_PRICE_ID:-}
+      - STRIPE_CURRENCY=${STRIPE_CURRENCY:-usd}
+      - STRIPE_SUCCESS_URL=${STRIPE_SUCCESS_URL:-http://localhost:5173/subscription?success=true}
+      - STRIPE_CANCEL_URL=${STRIPE_CANCEL_URL:-http://localhost:5173/subscription?cancelled=true}
+      - STRIPE_PORTAL_RETURN_URL=${STRIPE_PORTAL_RETURN_URL:-http://localhost:5173/subscription}
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  notification-service:
+    image: ${DOCKER_IMAGE_REPOSITORY:-loungebarsystem}:notification-service-${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: services/notification-service/Dockerfile
+    container_name: lounge_notification_service
+    restart: always
+    environment:
+      - CLIENT_ORIGIN=http://localhost:5173
+
+volumes:
+  db_data:
